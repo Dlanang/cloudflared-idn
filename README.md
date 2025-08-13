@@ -51,6 +51,7 @@ This will start all the services in the background.
 For security reasons, it is highly recommended to change the default credentials. The default credentials are provided in the following files:
 
 - `caddy/.auth.hashes`
+- `backend/creds.json`
 
 ## Ignored Files
 

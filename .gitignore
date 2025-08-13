@@ -20,8 +20,7 @@ frontend/node_modules/
 # Ignore build output
 frontend/dist/
 
-# Ignore credentials
-backend/creds.json
+
 
 # Ignore PNPM files
 pnpm-lock.yaml
