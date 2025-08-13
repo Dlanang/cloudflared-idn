@@ -45,3 +45,9 @@ docker-compose up -d
 ```
 
 This will start all the services in the background.
+
+## Security
+
+For security reasons, it is highly recommended to change the default credentials. The default credentials are provided in the following files:
+
+- `caddy/.auth.hashes`

@@ -22,8 +22,7 @@ frontend/dist/
 # Ignore credentials
 backend/creds.json
 
-# Ignore caddy auth hashes
-caddy/.auth.hashes
+
 
 # Ignore Python cache
 *.pyc
