@@ -1,0 +1,6 @@
+tunnel: REPLACE_TUNNEL_ID
+credentials-file: /home/nonroot/.cloudflared/REPLACE_TUNNEL_ID.json
+
+ingress:
+  - service: http://localhost:8080
+  - service: http_status:404

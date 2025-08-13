@@ -1,0 +1,44 @@
+%YAML 1.1
+---
+vars:
+  address-groups:
+    HOME_NET: "[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]"
+
+af-packet:
+  - interface: wlan0
+    cluster-type: cluster_round_robin
+    cluster-id: 99
+    defrag: yes
+    use-mmap: yes
+    tpacket-v3: yes
+    ring-size: 200000
+    buffer-size: 64512
+
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: /var/log/suricata/eve.json
+      community-id: yes
+  - fast-log:
+      enabled: yes
+      filename: /var/log/suricata/fast.log
+  - stats:
+      enabled: yes
+      filename: /var/log/suricata/stats.log
+
+engine-analysis:
+  rules-fast-pattern: yes
+
+detect:
+  profile: medium
+  sgh-mpm-context: auto
+  prefilter:
+    default: mpm
+
+threading:
+  detect-thread-ratio: 0.75
+
+stream: { inline: no }
+unix-command: { enabled: yes }
+logging: { default-log-level: info }

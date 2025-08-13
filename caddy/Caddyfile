@@ -1,0 +1,46 @@
+{
+	auto_https off
+	servers :80 {
+		protocols h1 h2c
+	}
+}
+
+(auth) {
+	basic_auth {
+		fox $2a$14$HBmwJVW7Xxg/mm77vL47Suu4E5deihQubqBXP0YJSPwMVos.tAQky
+		adit $2a$14$5WvMsDStDnStD47TEkWiD..HLAp/nBaZqQdacbRnbdE8SF15QL9nm
+		bebek $2a$14$W49zAl2rPpziG/waiPscHObVNdiv/0xZ8GAVcPv9ZrKAknKEifAzm
+	}
+}
+
+:80 {
+	# PUBLIC
+	handle_path /healthz {
+		respond "ok" 200
+	}
+	handle_path /login* {
+		reverse_proxy tornado-web:8080
+	}
+
+	# API (PROTECTED)
+	handle_path /api/* {
+		import auth
+		reverse_proxy tornado-web:8080
+	}
+
+	# Streamlit (PROTECTED) — tanpa strip_prefix, baseUrlPath=/monitor di Streamlit
+	handle /monitor* {
+		import auth
+		reverse_proxy streamlit-app:8501 {
+			header_up X-Remote-User {http.auth.user.id}
+		}
+	}
+
+	# SPA Landing (PUBLIC)
+	handle {
+		root * /srv/www
+		encode zstd gzip
+		try_files {path} /index.html
+		file_server
+	}
+}

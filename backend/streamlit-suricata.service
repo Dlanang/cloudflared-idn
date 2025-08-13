@@ -1,0 +1,13 @@
+[Unit]
+Description=Streamlit Suricata Dashboard
+After=network.target
+
+[Service]
+User=eve
+WorkingDirectory=/home/eve/monitoring-suricata/backend
+ExecStart=/home/eve/monitoring-suricata/backend/venv/bin/streamlit run /home/eve/monitoring-suricata/backend/app.py --server.address localhost --server.port 8501
+Restart=on-failure
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

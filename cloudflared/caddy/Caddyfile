@@ -1,0 +1,40 @@
+{
+	auto_https off
+	servers :80 {
+		protocols h1 h2c
+	}
+}
+
+(auth) {
+	basic_auth {
+		fox $2a$14$HtWVyfY6xy3PefVz1cGM..CmdZl/vj/RlNIaSz0AU5musOpOuNlY6
+		adit $2a$14$rFSyMOuBCSnNpqssVJ8tMueoNrWYS7qaEhLfttBHTRtWtxQo6.66e
+		bebek $2a$14$BwUH0ZD23WldJyjmZJGmu.5/edhXE117l2WA2VY9BXExhFBCTwc4K
+	}
+}
+
+:80 {
+	handle_path /healthz {
+		respond "ok" 200
+	}
+
+	# Streamlit Wajib Basic Auth; prefix /monitor dipertahankan
+	handle /monitor* {
+		import auth
+		reverse_proxy streamlit-app:8501
+	}
+
+	# API contoh (jika ada backend), juga protect
+	handle /api/* {
+		import auth
+		reverse_proxy tornado-web:8080
+	}
+
+	# Landing React (public)
+	handle {
+		root * /srv/www
+		encode zstd gzip
+		try_files {path} /index.html
+		file_server
+	}
+}

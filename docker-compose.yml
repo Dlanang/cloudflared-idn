@@ -1,0 +1,84 @@
+name: monitoring_stack
+
+volumes:
+  webroot: {}
+  suri_logs:
+
+networks:
+  webnet:
+    driver: bridge
+
+services:
+  frontend-builder:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    command: >
+      sh -lc "if [ -f package-lock.json ]; then npm ci; else npm install; fi &&
+      npm run build &&
+      rm -rf /webroot/* &&
+      cp -r dist/* /webroot/ &&
+      tail -f /dev/null"
+    volumes:
+      - webroot:/webroot
+      - ./frontend:/app
+    networks: [webnet]
+    restart: unless-stopped
+
+  caddy-rev:
+    image: caddy:2
+    depends_on: [frontend-builder, tornado-web, streamlit-app]
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - webroot:/srv/www:ro
+    networks: [webnet]
+    ports: ["8080:80"]
+    restart: unless-stopped
+
+  tornado-web:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file: [.env]
+    networks: [webnet]
+    restart: unless-stopped
+
+  streamlit-app:
+    build:
+      context: ./streamlit
+      dockerfile: Dockerfile
+    command: >
+      streamlit run /app/app/app.py
+      --server.address=0.0.0.0
+      --server.port=8501
+      --server.baseUrlPath=/monitor
+    expose: ["8501"]
+    networks: [webnet]
+    volumes:
+      - suri_logs:/var/log/suricata:ro
+    restart: unless-stopped
+
+  # Cloudflared token-mode; domain sudah diatur -> origin http://localhost:8080
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    environment:
+      - TUNNEL_TOKEN=${TOKEN}
+    network_mode: host
+    command: tunnel --no-autoupdate run
+    restart: unless-stopped
+
+  # Suricata host-mode, capture iface dari .env (default wlan0)
+  suricata:
+    build:
+      context: ./suricata
+      dockerfile: Dockerfile.suricata
+    network_mode: host
+    cap_add: ["NET_ADMIN", "NET_RAW"]
+    env_file: [".env"]
+    environment:
+      - SURI_IFACE=${SURI_IFACE:-wlan0}
+    volumes:
+      - suri_logs:/var/log/suricata
+      - ./suricata/suricata.yaml:/etc/suricata/suricata.yaml:ro
+    restart: unless-stopped
+

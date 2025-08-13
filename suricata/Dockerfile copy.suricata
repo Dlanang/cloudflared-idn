@@ -1,0 +1,29 @@
+# suricata/Dockerfile.suricata
+FROM debian:stable-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  build-essential autoconf automake libtool pkg-config curl ca-certificates \
+  libyaml-dev libpcap-dev libnet1-dev libjansson-dev libcap-ng-dev \
+  libmagic-dev libpcre2-dev libmaxminddb-dev libnfnetlink-dev libnftnl-dev \
+  libnetfilter-queue-dev zlib1g-dev liblz4-dev libunwind-dev \
+  rustc cargo \
+  python3 python3-yaml python3-pip \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+ARG SURI_VER=7.0.11
+RUN curl -LO https://www.openinfosecfoundation.org/download/suricata-${SURI_VER}.tar.gz \
+ && tar xzf suricata-${SURI_VER}.tar.gz \
+ && cd suricata-${SURI_VER} \
+ && CFLAGS="-O2 -pipe -march=x86-64-v2 -mtune=generic" \
+    ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var \
+                --disable-hyperscan --disable-gccmarch-native \
+ && make -j"$(nproc)" && make install-full && ldconfig \
+ && cd / && rm -rf /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends ethtool jq && rm -rf /var/lib/apt/lists/*
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh && mkdir -p /var/log/suricata /etc/suricata
+
+ENTRYPOINT ["/entrypoint.sh"]

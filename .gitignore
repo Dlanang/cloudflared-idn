@@ -1,7 +1,8 @@
 # Ignore backup files
 *.bak*
+*.bak_*
 
-# Ignore node_modules
+# Ignore Node.js dependencies
 node_modules/
 frontend/node_modules/
 
@@ -13,7 +14,7 @@ frontend/node_modules/
 # Ignore log files
 *.log
 
-# Ignore zip files
+# Ignore archives
 *.zip
 
 # Ignore build output
@@ -22,7 +23,7 @@ frontend/dist/
 # Ignore credentials
 backend/creds.json
 
-# Ignore pnpm files
+# Ignore PNPM files
 pnpm-lock.yaml
 pnpm-workspace.yaml
 
@@ -30,5 +31,11 @@ pnpm-workspace.yaml
 *.pyc
 __pycache__/
 
-# Ignore other files
+# Ignore OS-specific files
 .DS_Store
+
+# Ignore Docker-related backup files
+docker-compose.yml.bak*
+
+# Ignore specific files
+scripts_only.zip

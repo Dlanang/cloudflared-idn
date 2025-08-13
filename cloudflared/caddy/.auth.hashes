@@ -1,0 +1,7 @@
+(auth) {
+  basic_auth {
+    fox    $2a$14$HtWVyfY6xy3PefVz1cGM..CmdZl/vj/RlNIaSz0AU5musOpOuNlY6
+    adit   $2a$14$rFSyMOuBCSnNpqssVJ8tMueoNrWYS7qaEhLfttBHTRtWtxQo6.66e
+    bebek  $2a$14$BwUH0ZD23WldJyjmZJGmu.5/edhXE117l2WA2VY9BXExhFBCTwc4K
+  }
+}

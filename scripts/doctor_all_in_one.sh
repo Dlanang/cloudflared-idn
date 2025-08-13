@@ -1,0 +1,378 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# ====== KONFIG DASAR (JALANKAN DARI FOLDER cloudflared) ======
+COMPOSE="docker-compose.yml"
+SVC_ST="streamlit-app"
+SVC_SURI="suricata"
+SVC_CADDY="caddy-rev"
+SVC_FE="frontend-builder"
+SVC_BACK="tornado-web"
+SVC_CF="cloudflared"
+DOMAIN="${1:-}"
+
+say(){ printf ">> %s\n" "$*"; }
+die(){ echo "!! $*" >&2; exit 1; }
+trap 'echo "!! Gagal di baris $LINENO"; exit 2' ERR
+
+[[ -f "$COMPOSE" ]] || die "Tidak menemukan $COMPOSE. Pastikan kamu ada di folder cloudflared/."
+
+# ====== KODE APP STREAMLIT: LOGIN + PARSER STABIL ======
+read -r -d '' APP_PY <<"PY"
+import streamlit as st
+st.set_page_config(page_title="Suricata Monitor", layout="wide", initial_sidebar_state="collapsed")
+
+from typing import Dict
+from _live_tail_patch import render_live
+
+# Cred demo internal (di luar Basic Auth Caddy)
+CREDENTIALS: Dict[str, str] = {
+    "fox": "foxziemalam999",
+    "adit": "aditidn123",
+    "bebek": "bebekcantik123",
+}
+
+def require_login() -> bool:
+    # sudah login?
+    if st.session_state.get("logged_in") and st.session_state.get("user"):
+        return True
+
+    st.title("Masuk • Suricata Monitor")
+    st.caption("Proteksi internal tambahan (melengkapi Basic Auth di proxy).")
+
+    with st.form("login_form", clear_on_submit=False, border=True):
+        u = st.text_input("Username", key="login_user")
+        p = st.text_input("Password", type="password", key="login_pass")
+        ok = st.form_submit_button("Masuk", use_container_width=True)
+
+    if ok:
+        if u in CREDENTIALS and CREDENTIALS[u] == p:
+            st.session_state["logged_in"] = True
+            st.session_state["user"] = u
+            st.toast(f"Selamat datang, {u}!", icon="✅")
+            st.rerun()
+        else:
+            st.error("Username/password salah.", icon="⚠️")
+    return False
+
+def logout_ui():
+    with st.sidebar:
+        if st.session_state.get("logged_in"):
+            if st.button("Keluar", key="btn_logout_sidebar"):
+                for k in ("logged_in","user"): st.session_state.pop(k, None)
+                st.rerun()
+
+def main():
+    if not require_login(): return
+    logout_ui()
+    render_live()
+
+if __name__ == "__main__":
+    main()
+PY
+
+read -r -d '' HELPER_PY <<"PY"
+import os, json, time, io
+from collections import deque
+from typing import Deque, Dict, Any, List, Tuple
+import pandas as pd
+import streamlit as st
+
+LOG_PATH = os.getenv("EVE_JSON", "/var/log/suricata/eve.json")
+TAIL_MAX = int(os.getenv("EVE_MAX_LINES", "10000"))
+DEFAULT_WINDOW_MIN = int(os.getenv("EVE_WINDOW_MIN", "60"))
+BASE_URL_PATH = os.getenv("STREAMLIT_BASEURL", "/monitor")
+AUTO_MIN_SEC = int(os.getenv("EVE_AUTO_MIN_SEC", "2"))
+
+def tail_lines(path: str, max_lines: int) -> List[str]:
+    dq: Deque[str] = deque(maxlen=max_lines)
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                dq.append(line.rstrip("\n"))
+    except FileNotFoundError:
+        return []
+    return list(dq)
+
+def _flatten_event(raw: Dict[str, Any]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    out["timestamp"]   = raw.get("timestamp")
+    out["event_type"]  = raw.get("event_type")
+    out["src_ip"]      = raw.get("src_ip")
+    out["src_port"]    = raw.get("src_port")
+    out["dest_ip"]     = raw.get("dest_ip")
+    out["dest_port"]   = raw.get("dest_port")
+    out["proto"]       = raw.get("proto")
+    out["app_proto"]   = raw.get("app_proto")
+    a = raw.get("alert") or {}
+    out["signature"]   = a.get("signature")
+    out["sig_id"]      = a.get("signature_id")
+    out["severity"]    = a.get("severity")
+    dns = raw.get("dns") or {}
+    out["dns_query"]   = dns.get("rrname") or dns.get("query")
+    out["dns_rrtype"]  = dns.get("rrtype")
+    out["dns_rcode"]   = dns.get("rcode")
+    http = raw.get("http") or {}
+    out["http_host"]   = http.get("hostname")
+    out["http_url"]    = http.get("url")
+    out["http_status"] = http.get("status")
+    flow = raw.get("flow") or {}
+    out["flow_to_srv"] = flow.get("bytes_toserver")
+    out["flow_to_cli"] = flow.get("bytes_toclient")
+    return out
+
+def parse_eve_lines(lines: List[str]) -> pd.DataFrame:
+    rows: List[Dict[str, Any]] = []
+    for ln in lines:
+        if not ln: continue
+        try:
+            obj = json.loads(ln)
+        except Exception:
+            continue
+        rows.append(_flatten_event(obj))
+    if not rows:
+        return pd.DataFrame(columns=[
+            "timestamp","event_type","src_ip","src_port","dest_ip","dest_port",
+            "proto","app_proto","signature","sig_id","severity","dns_query","dns_rrtype",
+            "dns_rcode","http_host","http_url","http_status","flow_to_srv","flow_to_cli"
+        ])
+    df = pd.DataFrame(rows)
+    if "timestamp" in df.columns:
+        with pd.option_context("mode.chained_assignment", None):
+            df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
+    if "severity" in df.columns:
+        df["severity"] = pd.to_numeric(df["severity"], errors="coerce")
+    return df
+
+def df_filter(df: pd.DataFrame, event_type, sig_sub, src_sub, dst_sub, last_minutes):
+    out = df.copy()
+    if event_type and event_type != "ALL":
+        out = out[out["event_type"] == event_type]
+    if sig_sub:
+        out = out[out["signature"].fillna("").str.contains(sig_sub, case=False, na=False)]
+    if src_sub:
+        out = out[out["src_ip"].fillna("").str.contains(src_sub, case=False, na=False)]
+    if dst_sub:
+        out = out[out["dest_ip"].fillna("").str.contains(dst_sub, case=False, na=False)]
+    if last_minutes and "timestamp" in out.columns and pd.api.types.is_datetime64_any_dtype(out["timestamp"]):
+        since = pd.Timestamp.utcnow() - pd.Timedelta(minutes=int(last_minutes))
+        out = out[out["timestamp"] >= since]
+    return out
+
+def _file_status(path: str) -> Tuple[bool, str]:
+    try:
+        stt = os.stat(path)
+        ts  = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(stt.st_mtime))
+        return True, f"size={stt.st_size}B, mtime(UTC)={ts}"
+    except FileNotFoundError:
+        return False, "file not found"
+
+def render_live():
+    st.title("Monitoring Suricata")
+    st.caption("Untuk menyelesaikan tugas akhir dari **ID-NETWORKERS**")
+
+    ok, status = _file_status(LOG_PATH)
+    st.info(f"Source: `{LOG_PATH}` — {status}")
+
+    with st.sidebar:
+        st.header("Filter")
+        et  = st.selectbox("Event Type", ["ALL","alert","dns","flow","http","tls","ssh","ftp"], index=0, key="flt_et")
+        sig = st.text_input("Signature contains", key="flt_sig")
+        src = st.text_input("Src IP contains", key="flt_src")
+        dst = st.text_input("Dest IP contains", key="flt_dst")
+        win = st.number_input("Window (minutes)", min_value=0, max_value=24*60, value=DEFAULT_WINDOW_MIN, step=1, key="flt_win")
+        st.divider()
+        auto = st.toggle("Auto refresh", value=False, key="auto_toggle")
+        interval = st.number_input("Interval (sec)", min_value=AUTO_MIN_SEC, max_value=60, value=5, key="auto_int")
+        st.caption("Gunakan manual **Refresh** bila Auto refresh dimatikan.")
+
+    # Tombol refresh TUNGGAL dengan key unik → cegah DuplicateWidgetID
+    if st.button("Refresh sekarang", key="btn_refresh_top_unique"):
+        st.rerun()
+
+    if not ok:
+        st.warning("File belum ada. Pastikan Suricata menulis `eve.json` ke path di atas.")
+        return
+
+    lines = tail_lines(LOG_PATH, TAIL_MAX)
+    df = parse_eve_lines(lines)
+    dff = df_filter(df, et, sig, src, dst, win if win and int(win) > 0 else None)
+
+    c1,c2,c3,c4 = st.columns(4)
+    with c1: st.metric("Total events (tail)", len(df))
+    with c2: st.metric("Filtered", len(dff))
+    with c3:
+        alerts = (dff["event_type"] == "alert").sum() if "event_type" in dff else 0
+        st.metric("Alerts (filtered)", int(alerts))
+    with c4:
+        sev2p = dff.query("severity >= 2").shape[0] if "severity" in dff.columns else 0
+        st.metric("Severity ≥ 2", int(sev2p))
+
+    if not dff.empty:
+        a,b = st.columns(2)
+        with a:
+            by_type = dff["event_type"].value_counts().sort_values(ascending=False)
+            st.subheader("Events by type")
+            st.bar_chart(by_type)
+        with b:
+            if "signature" in dff.columns:
+                top_sig = dff["signature"].fillna("unknown").value_counts().head(10)
+                st.subheader("Top signatures")
+                st.bar_chart(top_sig)
+
+    st.subheader("Data (filtered)")
+    st.dataframe(
+        dff.sort_values("timestamp", ascending=False, na_position="last").head(200),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    csv_io = io.StringIO(); dff.to_csv(csv_io, index=False)
+    st.download_button("Download CSV (filtered)", data=csv_io.getvalue(),
+                       file_name="eve_filtered.csv", mime="text/csv", key="dl_csv")
+
+    jsonl_io = io.StringIO()
+    for _, row in dff.iterrows():
+        payload = {k: (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
+        jsonl_io.write(json.dumps(payload, default=str) + "\n")
+    st.download_button("Download JSONL (filtered)", data=jsonl_io.getvalue(),
+                       file_name="eve_filtered.jsonl", mime="application/json", key="dl_jsonl")
+
+    st.subheader("Tail (last 20 raw lines)")
+    st.code("\n".join(lines[-20:]), language="json")
+
+    if auto:
+        time.sleep(max(AUTO_MIN_SEC, int(interval)))
+        st.rerun()
+PY
+
+# ====== FUNGSI UTIL ======
+cid(){ docker compose -f "$COMPOSE" ps -q "$1" 2>/dev/null || true; }
+up(){ docker compose -f "$COMPOSE" up -d "$@" >/dev/null; }
+
+ensure_up(){
+  say "Pastikan stack hidup (utama)..."
+  up "$SVC_CADDY" "$SVC_ST" "$SVC_SURI" "$SVC_FE" "$SVC_BACK" "$SVC_CF"
+}
+
+fix_caddy(){
+  say "Cek & patch Caddyfile (public / & /healthz, proteksi /monitor)..."
+  local HF="caddy/Caddyfile"
+  [[ -f "$HF" ]] || die "Tidak menemukan $HF"
+  # Public /healthz dan /
+  if ! grep -qE 'handle_path +/healthz' "$HF"; then
+    sed -ri 's@(:80 *\{)@\1\n  handle_path /healthz { respond "ok" 200 }\n@' "$HF"
+  fi
+  # Blok monitor (tanpa strip_prefix)
+  if ! grep -qE 'handle_path +/monitor\*' "$HF"; then
+    sed -ri 's@(:80 *\{)@\1\n  handle_path /monitor* {\n    import auth\n    reverse_proxy streamlit-app:8501\n  }\n@' "$HF"
+  else
+    # pastikan tidak ada strip_prefix di blok /monitor
+    sed -ri '/handle_path +\/monitor\*/,/}/ s/strip_path_prefix.*//' "$HF"
+  fi
+  # ganti basicauth -> basic_auth (naming baru)
+  sed -ri 's/\bbasicauth\b/basic_auth/g' "$HF"
+
+  # Reload (fallback: restart container bila RO)
+  if ! docker compose -f "$COMPOSE" exec -T "$SVC_CADDY" caddy fmt --overwrite /etc/caddy/Caddyfile >/dev/null 2>&1; then
+    say "Fmt gagal (RO)."
+  fi
+  if ! docker compose -f "$COMPOSE" exec -T "$SVC_CADDY" caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+    say "Reload gagal → restart Caddy."
+    docker compose -f "$COMPOSE" restart "$SVC_CADDY" >/dev/null
+  fi
+}
+
+build_frontend(){
+  say "Build & publish frontend (Vite) → /webroot"
+  up "$SVC_FE"
+  docker compose -f "$COMPOSE" exec -T "$SVC_FE" sh -lc '
+    (test -f package.json && jq -e . >/dev/null 2>&1) || true
+    npm i --silent --no-fund --no-audit >/dev/null 2>&1 || npm i
+    npm run build || exit 1
+    rm -rf /webroot/* && cp -r dist/* /webroot/
+    # Patch: matikan Rocket Loader & force type=module
+    find /webroot -type f -name "*.html" -maxdepth 1 -print0 | xargs -0 -I{} sh -lc "
+      sed -ri '\''s@<script @<script data-cfasync=\"false\" @g'\'' {};
+      sed -ri '\''s@type=\"[^\"]*-module\"@type=\"module\"@g'\'' {}
+    "'
+}
+
+seed_suricata(){
+  say "Periksa Suricata & seed eve.json bila kosong..."
+  up "$SVC_SURI"
+  docker compose -f "$COMPOSE" exec -T "$SVC_SURI" sh -lc '
+    p=/var/log/suricata/eve.json
+    mkdir -p /var/log/suricata
+    if [ ! -s "$p" ]; then
+      TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      : > "$p"
+      echo "{\"timestamp\":\"$TS\",\"event_type\":\"alert\",\"src_ip\":\"192.168.1.10\",\"dest_ip\":\"10.0.0.5\",\"alert\":{\"signature\":\"DEMO Seed 1\",\"severity\":2}}" >> "$p"
+      echo "{\"timestamp\":\"$TS\",\"event_type\":\"dns\",\"src_ip\":\"192.168.1.11\",\"dest_ip\":\"1.1.1.1\",\"dns\":{\"query\":\"example.com\",\"rrtype\":\"A\",\"rcode\":\"NOERROR\"}}" >> "$p"
+      echo "{\"timestamp\":\"$TS\",\"event_type\":\"flow\",\"src_ip\":\"192.168.1.12\",\"dest_ip\":\"10.0.0.8\",\"flow\":{\"bytes_toserver\":1234,\"bytes_toclient\":4321}}" >> "$p"
+      chmod 666 "$p"
+    fi
+  ' || true
+}
+
+check_shared_volume(){
+  say "Cek volume /var/log/suricata terpampang di Streamlit & Suricata..."
+  local a b
+  a=$(docker inspect "$(cid "$SVC_SURI")"    --format '{{range .Mounts}}{{if eq .Destination "/var/log/suricata"}}{{.Name}}{{end}}{{end}}' || true)
+  b=$(docker inspect "$(cid "$SVC_ST")"      --format '{{range .Mounts}}{{if eq .Destination "/var/log/suricata"}}{{.Name}}{{end}}{{end}}' || true)
+  echo "   Suricata mounts : ${a:-<none>}"
+  echo "   Streamlit mounts: ${b:-<none>}"
+  if [[ -n "$a" && -n "$b" && "$a" == "$b" ]]; then
+    echo "   OK: share volume sama."
+  else
+    echo "   WARN: volume berbeda/none → pastikan docker-compose map volume yang sama untuk kedua container."
+  fi
+}
+
+deploy_streamlit(){
+  say "Deploy ulang kode Streamlit (login + parser stabil)..."
+  up "$SVC_ST"
+  docker compose -f "$COMPOSE" exec -T "$SVC_ST" sh -lc 'rm -rf /app/app && mkdir -p /app/app'
+  printf "%s" "$APP_PY"    | docker compose -f "$COMPOSE" exec -T "$SVC_ST" sh -lc 'cat > /app/app/app.py'
+  printf "%s" "$HELPER_PY" | docker compose -f "$COMPOSE" exec -T "$SVC_ST" sh -lc 'cat > /app/app/_live_tail_patch.py'
+  docker compose -f "$COMPOSE" restart "$SVC_ST" >/dev/null
+}
+
+self_test_origin(){
+  say "Self-test origin (Caddy 127.0.0.1:8080)"
+  echo -n "  /healthz : "; curl -sI http://127.0.0.1:8080/healthz | head -n1 || true
+  echo -n "  /        : "; curl -sI http://127.0.0.1:8080/        | head -n1 || true
+  echo -n "  /monitor : "; curl -sI http://127.0.0.1:8080/monitor | head -n1 || true
+}
+
+self_test_cf(){
+  [[ -z "$DOMAIN" ]] && return 0
+  say "Tes via Cloudflare: https://$DOMAIN"
+  echo -n "  /healthz : "; curl -sI "https://$DOMAIN/healthz" | head -n1 || true
+  echo -n "  /monitor : "; curl -sI "https://$DOMAIN/monitor" | head -n1 || true
+}
+
+streamlit_smoketest(){
+  say "Smoketest Streamlit (tail 80 log):"
+  docker compose -f "$COMPOSE" logs -n 80 "$SVC_ST" || true
+  say "Cari error umum:"
+  docker compose -f "$COMPOSE" logs -n 400 "$SVC_ST" | egrep -n "DuplicateWidgetID|set_page_config|experimental_rerun|ModuleNotFoundError|Traceback" || true
+}
+
+# ====== RUN ======
+ensure_up
+fix_caddy
+build_frontend
+seed_suricata
+check_shared_volume
+deploy_streamlit
+self_test_origin
+self_test_cf
+streamlit_smoketest
+
+say "DONE ✓ — akses /monitor:"
+echo "   1) Basic Auth (Caddy) → lalu"
+echo "   2) Login internal Streamlit:"
+echo "      - fox   / foxziemalam999"
+echo "      - adit  / aditidn123"
+echo "      - bebek / bebekcantik123"

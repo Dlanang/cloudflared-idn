@@ -1,0 +1,40 @@
+%YAML 1.1
+---
+# ---- VARS WAJIB ----
+vars:
+  address-groups:
+    HOME_NET: "[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]"
+    EXTERNAL_NET: "!$HOME_NET"
+    HTTP_SERVERS: "$HOME_NET"
+    SQL_SERVERS: "$HOME_NET"
+    SMTP_SERVERS: "$HOME_NET"
+    DNS_SERVERS: "$HOME_NET"
+    TELNET_SERVERS: "$HOME_NET"
+
+  port-groups:
+    HTTP_PORTS: "80,81,443,8000,8080,8443,8888"
+    SSH_PORTS: "22,2222"
+    SMTP_PORTS: "25,465,587"
+    DNS_PORTS: "53"
+
+app-layer:
+  protocols:
+    modbus: { detection-enabled: yes }
+    dnp3:   { detection-enabled: yes }
+
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: /var/log/suricata/eve.json
+      community-id: yes
+      types: [alert, flow, dns, http, tls, stats]
+stats:
+  enabled: yes
+  interval: 10s
+
+engine-analysis: { rules-fast-pattern: yes }
+detect: { profile: medium }
+threading: { detect-thread-ratio: 0.75 }
+unix-command: { enabled: yes }
+logging: { default-log-level: info }
