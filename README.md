@@ -51,3 +51,15 @@ This will start all the services in the background.
 For security reasons, it is highly recommended to change the default credentials. The default credentials are provided in the following files:
 
 - `caddy/.auth.hashes`
+
+## Ignored Files
+
+This project contains a `.gitignore` file that is configured to ignore files and directories that are not necessary for the repository. This includes:
+
+- `node_modules/`
+- `.env`
+- `*.log`
+- `*.bak*`
+- `pnpm-lock.yaml`
+- `pnpm-workspace.yaml`
+- and other common files.

@@ -22,8 +22,13 @@ frontend/dist/
 # Ignore credentials
 backend/creds.json
 
-
+# Ignore pnpm files
+pnpm-lock.yaml
+pnpm-workspace.yaml
 
 # Ignore Python cache
 *.pyc
 __pycache__/
+
+# Ignore other files
+.DS_Store
