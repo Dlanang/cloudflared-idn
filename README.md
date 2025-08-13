@@ -1,61 +1,105 @@
-# Project README
+# README Proyek
 
-This project is a web application with a microservices-based architecture, orchestrated using Docker Compose. It includes a Python backend, a React frontend, and various other services for reverse proxying, security, and data visualization.
+## 📝 Deskripsi
 
-## Project Structure
+Proyek ini adalah aplikasi web dengan arsitektur microservices yang diorkestrasi menggunakan Docker Compose. Proyek ini mencakup backend Python, a frontend React, dan berbagai layanan lain untuk proksi terbalik, keamanan, dan visualisasi data. Proyek ini dibuat untuk memenuhi tugas akhir di **IDN-Networkers**.
 
-- **`backend/`**: The core Python backend application.
-  - `app/main.py`: The main application logic.
-  - `Dockerfile`: For building the backend Docker image.
-  - `requirements.txt`: Python dependencies.
+## 🚀 Tumpukan Teknologi
 
-- **`caddy/`**: Caddy web server configuration.
-  - `Caddyfile`: Caddy configuration file for reverse proxying and handling web traffic.
+- **Frontend:**
+    - ⚛️ React
+    - ⚡ Vite
+    - 💨 Tailwind CSS
+    - 📜 JavaScript
+- **Backend:**
+    - 🐍 Python
+    - 🌶️ Flask
+    - 🎈 Streamlit
+- **Web Server/Proxy:**
+    - 🔒 Caddy
+- **Tunneling:**
+    - ☁️ Cloudflare Tunnel
+- **Containerization & Orchestration:**
+    - 🐳 Docker
+    - 🎶 Docker Compose
+- **Keamanan:**
+    - 🛡️ Suricata
 
-- **`cloudflared/`**: Cloudflare Tunnel configuration.
-  - `config.yml`: Configuration for `cloudflared` to expose the application to the internet securely.
+## 📂 Struktur Proyek
 
-- **`frontend/`**: The React-based frontend application.
-  - `src/`: Source code for the React application.
-    - `App.jsx`: The main React component.
-    - `main.jsx`: The entry point for the frontend application.
-  - `vite.config.js`: Configuration for the Vite build tool.
-  - `tailwind.config.js`: Configuration for Tailwind CSS.
-  - `Dockerfile`: For building the frontend Docker image.
+- **`backend/`**: Aplikasi backend inti Python.
+- **`caddy/`**: Konfigurasi server web Caddy.
+- **`cloudflared/`**: Konfigurasi Cloudflare Tunnel.
+- **`frontend/`**: Aplikasi frontend berbasis React.
+- **`scripts/`**: Kumpulan skrip utilitas untuk mengelola proyek.
+- **`streamlit/`**: Aplikasi Streamlit.
+- **`suricata/`**: Konfigurasi Suricata Intrusion Detection System (IDS).
+- **`docker-compose.yml`**: File Docker Compose utama untuk mengorkestrasi semua layanan.
 
-- **`scripts/`**: A collection of utility scripts for managing the project.
-  - Contains various `.sh` scripts for deployment, setup, and maintenance tasks.
+## 🏁 Memulai
 
-- **`streamlit/`**: A Streamlit application.
-  - `app/app.py`: The Streamlit application code, likely for data visualization or interactive dashboards.
-  - `Dockerfile`: For building the Streamlit Docker image.
-
-- **`suricata/`**: Suricata Intrusion Detection System (IDS) configuration.
-  - `suricata.yaml`: The main configuration file for Suricata.
-  - `Dockerfile.suricata`: For building the Suricata Docker image.
-
-- **`docker-compose.yml`**: The main Docker Compose file for orchestrating all the services.
-
-## Getting Started
-
-To run the project, you will need to have Docker and Docker Compose installed. Then, you can run the following command:
+Untuk menjalankan proyek ini, Anda harus menginstal Docker dan Docker Compose. Kemudian, Anda dapat menjalankan perintah berikut:
 
 ```bash
 docker-compose up -d
 ```
 
-This will start all the services in the background.
+Perintah ini akan memulai semua layanan di latar belakang.
 
-## Security
+## 🐳 Penggunaan Docker Compose
 
-For security reasons, it is highly recommended to change the default credentials. The default credentials are provided in the following files:
+File `docker-compose.yml` adalah pusat dari proyek ini. Ini mendefinisikan semua layanan, jaringan, dan volume yang diperlukan untuk menjalankan aplikasi. Berikut adalah beberapa perintah yang berguna:
+
+- **Memulai semua layanan:**
+    ```bash
+    docker-compose up -d
+    ```
+- **Menghentikan semua layanan:**
+    ```bash
+    docker-compose down
+    ```
+- **Melihat log dari semua layanan:**
+    ```bash
+    docker-compose logs -f
+    ```
+- **Melihat log dari layanan tertentu:**
+    ```bash
+    docker-compose logs -f <nama_layanan>
+    ```
+- **Membangun kembali gambar Docker:**
+    ```bash
+    docker-compose build
+    ```
+
+## 🐛 Debugging
+
+Berikut adalah beberapa tips untuk men-debug berbagai layanan:
+
+- **Frontend:**
+    - Periksa log dari container `frontend` untuk setiap kesalahan.
+    - Gunakan alat pengembang browser untuk memeriksa konsol dan permintaan jaringan.
+- **Backend:**
+    - Periksa log dari container `backend` untuk setiap kesalahan.
+    - Gunakan `docker exec` untuk masuk ke dalam container dan menjalankan perintah.
+- **Caddy:**
+    - Periksa log dari container `caddy` untuk masalah proksi terbalik.
+- **Cloudflared:**
+    - Periksa log dari container `cloudflared` untuk masalah tunneling.
+- **Streamlit:**
+    - Periksa log dari container `streamlit` untuk kesalahan aplikasi.
+- **Suricata:**
+    - Periksa log dari container `suricata` untuk peringatan keamanan.
+
+## 🔐 Keamanan
+
+Untuk alasan keamanan, sangat disarankan untuk mengubah kredensial default. Kredensial default disediakan dalam file berikut:
 
 - `caddy/.auth.hashes`
 - `backend/creds.json`
 
-## Ignored Files
+## 🙈 File yang Diabaikan
 
-This project contains a `.gitignore` file that is configured to ignore files and directories that are not necessary for the repository. This includes:
+Proyek ini berisi file `.gitignore` yang dikonfigurasi untuk mengabaikan file dan direktori yang tidak diperlukan untuk repositori. Ini termasuk:
 
 - `node_modules/`
 - `.env`
@@ -63,4 +107,4 @@ This project contains a `.gitignore` file that is configured to ignore files and
 - `*.bak*`
 - `pnpm-lock.yaml`
 - `pnpm-workspace.yaml`
-- and other common files.
+- dan file umum lainnya.
