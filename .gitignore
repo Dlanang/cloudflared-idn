@@ -1,0 +1,30 @@
+# Ignore backup files
+*.bak*
+
+# Ignore node_modules
+node_modules/
+frontend/node_modules/
+
+# Ignore environment variables
+.env
+.env.*
+!/.env.example
+
+# Ignore log files
+*.log
+
+# Ignore zip files
+*.zip
+
+# Ignore build output
+frontend/dist/
+
+# Ignore credentials
+backend/creds.json
+
+# Ignore caddy auth hashes
+caddy/.auth.hashes
+
+# Ignore Python cache
+*.pyc
+__pycache__/
